@@ -21,6 +21,10 @@ const TRIGGERS = [
       /\b(documente|documentar|documentacao|atualiz\w+ (a |as )?docs?)\b/,
   },
   {
+    skill: "mold:deploy",
+    pattern: /\b(deploy\w*|rollback|ci vermelho|subir para (a )?producao)\b/,
+  },
+  {
     skill: "mold:protocolo-remoto",
     pattern: /\b(protocolo remoto|modo remoto|longe do computador)\b/,
   },
@@ -47,7 +51,7 @@ function projectTriggers() {
   try {
     const declared = JSON.parse(readFileSync(join(root, ".claude/gatilhos.json"), "utf8"));
     return Object.entries(declared)
-      .filter(([skill]) => /^[\w-]+$/.test(skill))
+      .filter(([skill]) => /^([\w-]+:)?[\w-]+$/.test(skill))
       .map(([skill, source]) => ({ skill, pattern: new RegExp(source) }));
   } catch {
     return [];
@@ -56,9 +60,8 @@ function projectTriggers() {
 
 const input = JSON.parse((await readStdin()) || "{}");
 const prompt = withoutAccents(String(input?.prompt ?? "").toLowerCase());
-const skills = [...TRIGGERS, ...projectTriggers()].filter(({ pattern }) => pattern.test(prompt)).map(
-  ({ skill }) => skill,
-);
+const matches = [...TRIGGERS, ...projectTriggers()].filter(({ pattern }) => pattern.test(prompt));
+const skills = [...new Set(matches.map(({ skill }) => skill))];
 
 if (skills.length > 0) {
   const list = skills.map((skill) => `\`${skill}\``).join(", ");

@@ -27,6 +27,8 @@ e skill pessoal de mesmo nome convive com a do plugin.
 ## Opção RTK (desligada por padrão)
 
 Ligue na configuração do plugin, em `/plugin`. Exige o RTK instalado e no `PATH`.
+A opção exige o prefixo. Quem comprime a saída é o hook do próprio RTK, registrado uma
+vez com `rtk init -g --hook-only`.
 
 ## Ajustes por projeto
 

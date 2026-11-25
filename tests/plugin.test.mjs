@@ -28,7 +28,18 @@ const bash = (command) => ({ tool_input: { command } });
 
 test("sem a opção RTK, comando sem prefixo passa", () => {
   assert.equal(run("require-rtk.mjs", [], bash("git status")), "");
-  assert.equal(run("rtk-hook.mjs", [], bash("git status")), "");
+});
+
+test("git -C não escapa da proteção do stage e do push", () => {
+  assert.match(run("guard-doc-staging.mjs", [], bash("git -C repo add -A")), /"deny"/);
+  assert.match(run("guard-doc-staging.mjs", [], bash('git -C "meu repo" add LEIA.md')), /"ask"/);
+  assert.match(run("guard-doc-staging.mjs", [], bash("git -C repo push")), /mold:deploy/);
+});
+
+test("pedido de deploy sugere a skill uma vez, inclusive com gatilho do projeto", () => {
+  writeFileSync(join(root, ".claude/gatilhos.json"), '{"novo-modulo":"novo modulo","mold:deploy":"terraform|deploy"}');
+  assert.equal(run("suggest-skill.mjs", [], { prompt: "fazer deploy" }).match(/mold:deploy/g)?.length, 1);
+  assert.match(run("suggest-skill.mjs", [], { prompt: "rodar terraform" }), /`mold:deploy`/);
 });
 
 test("com a opção RTK, comando sem prefixo é negado", () => {
