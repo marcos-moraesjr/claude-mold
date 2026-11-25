@@ -1,6 +1,6 @@
 // Hook PreToolUse (Bash): pede confirmação antes de colocar documentação no
 // stage ou no commit, barra o staging em massa e mensagens de commit/PR com
-// atribuição de IA, e lembra a skill `deploy` no push.
+// atribuição de IA, e pede confirmação no push, lembrando a skill `deploy`.
 // Regra: instrucoes/regras.md (Git).
 import { execFileSync } from "node:child_process";
 
@@ -70,16 +70,10 @@ if (AI_ATTRIBUTION.test(command) && PUBLISHES_MESSAGE.test(command)) {
 }
 
 if (/\bgit(?:\s+-C\s+(?:"[^"]*"|\x27[^\x27]*\x27|\S+))*\s+push\b/.test(command)) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "PreToolUse",
-        additionalContext:
-          "Push em main ou develop: siga a skill `mold:deploy` (checagens do CI, acompanhar a execução).",
-      },
-    }),
+  decide(
+    "ask",
+    "Push exige confirmação do usuário, a cada vez. Em main ou develop, siga a skill `mold:deploy` (checagens do CI, acompanhar a execução).",
   );
-  process.exit(0);
 }
 
 if (/\bgit(?:\s+-C\s+(?:"[^"]*"|\x27[^\x27]*\x27|\S+))*\s+add\b/.test(command) && DOC_PATH.test(command)) {

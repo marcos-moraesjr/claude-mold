@@ -2,8 +2,9 @@
 // ou se a checagem declarada para o projeto falhar. A declaração fica em
 // ~/.claude/qualidade.json ({"<raiz do projeto>": "<comando>"}), nunca no
 // repositório: um clone de terceiro não pode mandar comando para este hook.
+// Pasta sem git (vários repositórios lado a lado): confere cada repositório filho.
 import { execFileSync, execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -38,44 +39,64 @@ for await (const chunk of process.stdin) raw += chunk;
 // Evita laço: se já bloqueamos uma vez neste turno, deixa encerrar.
 if (JSON.parse(raw || "{}").stop_hook_active) process.exit(0);
 
-let root;
-let changed;
-try {
-  root = git(["rev-parse", "--show-toplevel"]).trim();
-  process.chdir(root);
-  changed = git(["status", "--porcelain", "-uall"])
-    .split("\n")
-    .filter((line) => line.trim() && !line.startsWith(" D") && !line.startsWith("D"))
-    .map((line) => line.slice(3).split(" -> ").pop().trim())
-    .filter((file) => SOURCE_FILE.test(file) && !GENERATED_FILE.test(file));
-} catch {
-  process.exit(0);
+// Repositório atual; fora de um, os repositórios filhos diretos.
+function repositories() {
+  try {
+    return [{ root: git(["rev-parse", "--show-toplevel"]).trim(), prefix: "" }];
+  } catch {
+    return readdirSync(".", { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(entry.name, ".git")))
+      .map((entry) => ({ root: resolve(entry.name), prefix: `${entry.name}/` }));
+  }
 }
-if (changed.length === 0) process.exit(0);
 
-const problems = [];
-for (const file of changed) {
+function changedSources() {
+  try {
+    return git(["status", "--porcelain", "-uall"])
+      .split("\n")
+      .filter((line) => line.trim() && !line.startsWith(" D") && !line.startsWith("D"))
+      .map((line) => line.slice(3).split(" -> ").pop().trim())
+      .filter((file) => SOURCE_FILE.test(file) && !GENERATED_FILE.test(file));
+  } catch {
+    return [];
+  }
+}
+
+function oversized(file, prefix) {
   try {
     const lines = countLines(readFileSync(file, "utf8"));
     if (lines > MAX_FILE_LINES && lines > linesAtHead(file))
-      problems.push(`${file}: ${lines} linhas (máximo ${MAX_FILE_LINES}).`);
+      return [`${prefix}${file}: ${lines} linhas (máximo ${MAX_FILE_LINES}).`];
   } catch {
     // arquivo removido ou ilegível: ignora
   }
+  return [];
 }
 
-const command = declaredCheck(root);
 // Linhas "AVISO:" de uma checagem aprovada aparecem ao usuário sem bloquear.
-let warnings = [];
-if (command) {
+function runDeclared(command) {
+  if (!command) return { problems: [], warnings: [] };
   try {
     const passed = execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-    warnings = passed.split("\n").filter((line) => line.startsWith("AVISO:"));
+    return { problems: [], warnings: passed.split("\n").filter((line) => line.startsWith("AVISO:")) };
   } catch (error) {
     const output = `${error.stdout ?? ""}${error.stderr ?? ""}`.trim();
-    problems.push(`${command} falhou:\n${output.slice(0, 3000)}`);
+    return { problems: [`${command} falhou:\n${output.slice(0, 3000)}`], warnings: [] };
   }
 }
+
+function checkRepository({ root, prefix }) {
+  process.chdir(root);
+  const changed = changedSources();
+  if (changed.length === 0) return { problems: [], warnings: [] };
+  const sizes = changed.flatMap((file) => oversized(file, prefix));
+  const declared = runDeclared(declaredCheck(root));
+  return { problems: [...sizes, ...declared.problems], warnings: declared.warnings };
+}
+
+const results = repositories().map(checkRepository);
+const problems = results.flatMap((result) => result.problems);
+const warnings = results.flatMap((result) => result.warnings);
 
 if (problems.length === 0 && warnings.length > 0) {
   process.stdout.write(JSON.stringify({ systemMessage: warnings.join("\n") }));
