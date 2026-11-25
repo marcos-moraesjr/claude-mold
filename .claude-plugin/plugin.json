@@ -1,0 +1,16 @@
+{
+  "name": "mold",
+  "version": "0.1.0",
+  "description": "Padrão de trabalho para Claude Code: skills, hooks e instruções em pt-BR.",
+  "author": { "name": "marcos-moraesjr" },
+  "repository": "https://github.com/marcos-moraesjr/claude-mold",
+  "license": "MIT",
+  "userConfig": {
+    "rtk": {
+      "type": "boolean",
+      "title": "Usar RTK",
+      "description": "Exige o prefixo rtk nos comandos de shell. Requer o RTK instalado.",
+      "default": false
+    }
+  }
+}

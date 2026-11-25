@@ -1,0 +1,11 @@
+{
+  "name": "mold",
+  "owner": { "name": "marcos-moraesjr" },
+  "plugins": [
+    {
+      "name": "mold",
+      "source": "./",
+      "description": "Padrão de trabalho para Claude Code: skills, hooks e instruções em pt-BR."
+    }
+  ]
+}
