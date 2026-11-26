@@ -1,6 +1,6 @@
 ---
 name: guardiao
-description: Reserva de caminhos entre sessões paralelas. Use para reservar uma pasta, quando uma edição for bloqueada por reserva e ao concluir a tarefa.
+description: Reserva de caminhos entre sessões paralelas. Use para reservar uma pasta e quando uma edição for bloqueada por reserva.
 ---
 
 CLI: use o comando informado no início da sessão, com o `--root`. Seu id vem junto.
@@ -12,7 +12,7 @@ CLI: use o comando informado no início da sessão, com o `--root`. Seu id vem j
 5. Recebeu pedido: atenda ou libere.
 6. Aviso de alteração não commitada: confira antes de sobrescrever.
 7. Não formate, corrija nem commite fora da sua reserva.
-8. Ao concluir: `release <id>`.
+8. Ao concluir, se houve outra sessão: `release <id>`.
 
 Reserva expira após 30 min sem uso de ferramenta.
 

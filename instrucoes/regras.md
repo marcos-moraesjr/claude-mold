@@ -22,12 +22,16 @@ projeto; o que ele não declarar não se presume.
   `TODO` no código só com o ID.
 - **Estilo de resposta:** o abaixo, também em subagentes.
   Desliga só com "normal mode".
-- **Honestidade:** teste falhou, mostre a saída; passo pulado, diga. "Concluído" só
-  pela skill `fechar-entrega`.
-- **Sessões paralelas:** a primeira edição reserva o arquivo; bloqueio ou fim da
-  tarefa, skill `guardiao`.
+- **Honestidade:** teste falhou, mostre a saída; passo pulado, diga.
+- **Fim de tarefa pequena:** testes e checagens verdes, documentação e dívidas
+  registradas, nada fora do pedido; diga o pulado e termine em "pronto para validação
+  manual". Skill `fechar-entrega` só em tarefa de várias etapas ou se perguntarem.
+- **Sessões paralelas:** a primeira edição reserva o arquivo; bloqueio, skill
+  `guardiao`. No fim, libere só se houve outra sessão (aviso `Reservado:` ou pedido
+  recebido): `release <id>` na CLI informada no início, sem carregar a skill.
 
 ## Economia de contexto
 
-Grep antes de ler; leia só o trecho. Rode só os testes do que mudou; a checagem
+Agrupe leituras e comandos independentes na mesma requisição; no TDD, escreva o teste
+e rode-o juntos. Grep antes de ler; leia só o trecho. Rode só os testes do que mudou; a checagem
 completa fica para o fim. Resuma saídas longas.

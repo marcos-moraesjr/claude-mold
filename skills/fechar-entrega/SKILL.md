@@ -1,6 +1,6 @@
 ---
 name: fechar-entrega
-description: Definição de pronto. Use antes de dizer concluído ou pronto, e quando o usuário perguntar se está pronto ou se falta algo.
+description: Definição de pronto. Use ao encerrar tarefa de várias etapas e quando o usuário perguntar se está pronto ou se falta algo. Não use em tarefa pequena.
 ---
 
 # Fechar entrega
