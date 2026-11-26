@@ -12,7 +12,7 @@ CLI: use o comando informado no início da sessão, com o `--root`. Seu id vem j
 5. Recebeu pedido: atenda ou libere.
 6. Aviso de alteração não commitada: confira antes de sobrescrever.
 7. Não formate, corrija nem commite fora da sua reserva.
-8. Ao concluir, se houve outra sessão: `release <id>`.
+8. Reservas automáticas saem no fim do turno. Manuais (`claim`) exigem `release <id>` ao concluir.
 
 Reserva expira após 30 min sem uso de ferramenta.
 

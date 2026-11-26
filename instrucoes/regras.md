@@ -27,8 +27,7 @@ projeto; o que ele não declarar não se presume.
   registradas, nada fora do pedido; diga o pulado e termine em "pronto para validação
   manual". Skill `fechar-entrega` só em tarefa de várias etapas ou se perguntarem.
 - **Sessões paralelas:** a primeira edição reserva o arquivo; bloqueio, skill
-  `guardiao`. No fim, libere só se houve outra sessão (aviso `Reservado:` ou pedido
-  recebido): `release <id>` na CLI informada no início, sem carregar a skill.
+  `guardiao`.
 
 ## Economia de contexto
 

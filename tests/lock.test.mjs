@@ -104,3 +104,67 @@ test("duas sessões simultâneas: só uma reserva", async () => {
   const codes = await Promise.all(["e", "f"].map(start));
   assert.deepEqual(codes.sort(), [0, 2]);
 });
+
+const stop = (id) => run(["hook"], JSON.stringify({ hook_event_name: "Stop", session_id: id }));
+const lockDir = () =>
+  join(root, ".claude/locks", createHash("sha1").update(root.toLowerCase()).digest("hex").slice(0, 12));
+const freshRepo = (name) => {
+  const repo = join(root, name);
+  mkdirSync(repo, { recursive: true });
+  spawnSync("git", ["init", "-q"], { cwd: repo });
+  writeFileSync(join(repo, "f.ts"), "x");
+  return `${name}/f.ts`;
+};
+
+test("Stop libera a reserva automática, mantém a manual e não imprime nada", () => {
+  assert.equal(edit("i", "stop/auto.ts").status, 0);
+  assert.equal(edit("i", "stop/virou.ts").status, 0);
+  assert.equal(run(["claim", "i", "manual", "stop/virou.ts", "stop/pasta"]).status, 0);
+  assert.equal(edit("j", "stop/auto.ts").status, 2, "automática bloqueia");
+  assert.equal(edit("j", "stop/virou.ts").status, 2, "manual bloqueia");
+  const done = stop("i");
+  assert.deepEqual([done.status, done.stdout, done.stderr], [0, "", ""]);
+  const list = run(["list"]).stdout;
+  assert.doesNotMatch(list, /stop\/auto\.ts/);
+  assert.match(list, /stop\/virou\.ts, stop\/pasta/);
+  assert.equal(run(["release", "i"]).status, 0);
+});
+
+test("após o Stop, outra sessão edita o arquivo", () => {
+  assert.equal(edit("k", "livre.ts").status, 0);
+  assert.equal(edit("l", "livre.ts").status, 2);
+  assert.equal(stop("k").status, 0);
+  assert.equal(edit("l", "livre.ts").status, 0);
+});
+
+test("arquivo sujo: a mesma sessão reedita sem aviso; outra recebe o aviso", () => {
+  const file = freshRepo("dono");
+  assert.match(edit("m", file).stdout, /não commitadas/, "dono desconhecido");
+  stop("m");
+  assert.equal(edit("m", file).stdout, "");
+  stop("m");
+  assert.match(edit("n", file).stdout, /não commitadas/);
+});
+
+test("edição sob reserva manual de pasta atualiza o último dono", () => {
+  const file = freshRepo("pasta-manual");
+  edit("o", file);
+  stop("o");
+  assert.equal(run(["claim", "p", "pasta", "pasta-manual"]).status, 0);
+  edit("p", file);
+  assert.equal(run(["release", "p"]).status, 0);
+  assert.match(edit("o", file).stdout, /não commitadas/);
+});
+
+test("registro de donos não aparece no list nem quebra o hook", () => {
+  const file = freshRepo("registro");
+  edit("q", file);
+  stop("q");
+  assert.doesNotMatch(run(["list"]).stdout, /registro\/f\.ts|undefined/);
+  const owners = join(lockDir(), "owners");
+  assert.equal(JSON.parse(readFileSync(owners, "utf8"))["registro/f.ts"], "q");
+  writeFileSync(owners, "{quebrado");
+  const again = edit("q", file);
+  assert.equal(again.status, 0, again.stderr);
+  assert.match(again.stdout, /não commitadas/, "registro ilegível: dono desconhecido");
+});

@@ -1,7 +1,7 @@
 // Guardião de sessões paralelas: reserva de caminhos por sessão.
 // CLI: [--root <pasta>] claim <sessao> "<tarefa>" <caminho...> | release <sessao> [caminho...]
 //      note <sessao-dona> "<pedido>" | list
-// Hook: `hook` (SessionStart, PreToolUse, SessionEnd), JSON no stdin.
+// Hook: `hook` (SessionStart, PreToolUse, Stop, SessionEnd), JSON no stdin.
 import {
   mkdirSync,
   readdirSync,
@@ -50,6 +50,8 @@ const TOP = repositoryTop(ROOT);
 const KEY = createHash("sha1").update(TOP.toLowerCase()).digest("hex");
 const DIR = join(homedir(), ".claude/locks", KEY.slice(0, 12));
 const MUTEX = join(DIR, ".mutex");
+// Sem extensão .json: activeLocks() não pode lê-lo como reserva.
+const OWNERS = join(DIR, "owners");
 const TTL_MS = 30 * 60 * 1000;
 const MUTEX_STALE_MS = 10_000;
 const MUTEX_TRIES = 100;
@@ -86,6 +88,24 @@ function activeLocks() {
     }
   }
   return locks;
+}
+
+// Último dono de cada arquivo: sobrevive à liberação da reserva.
+function lastOwners() {
+  try {
+    return JSON.parse(readFileSync(OWNERS, "utf8"));
+  } catch {
+    // ausente ou ilegível: dono desconhecido
+    return {};
+  }
+}
+
+// Devolve o dono anterior, ou nada se desconhecido.
+function recordOwner(path, id) {
+  const owners = lastOwners();
+  const previous = owners[path];
+  if (previous !== id) writeFileSync(OWNERS, JSON.stringify({ ...owners, [path]: id }));
+  return previous;
 }
 
 // mkdir é atômico: só uma sessão por vez confere e grava reservas.
@@ -134,7 +154,9 @@ const commands = {
     if (busy.length) return `OCUPADO por ${busy.map(describe).join(" | ")}`;
     const own = locks.find((l) => l.id === id);
     const merged = [...new Set([...(own?.paths ?? []), ...wanted])];
-    save({ notes: [], ...own, id, task, paths: merged });
+    // Claim torna manual o que era automático.
+    const auto = (own?.auto ?? []).filter((p) => !wanted.includes(p));
+    save({ notes: [], ...own, id, task, paths: merged, auto });
   },
   release(id = "", ...paths) {
     const own = activeLocks().find((l) => l.id === id);
@@ -168,6 +190,15 @@ function isDirty(target) {
   }
 }
 
+// Fim do turno: saem as reservas automáticas; as manuais esperam release.
+function releaseAutomatic(id) {
+  const own = activeLocks().find((l) => l.id === id);
+  if (!own) return;
+  const manual = own.paths.filter((p) => !own.auto?.includes(p));
+  if (manual.length) save({ ...own, paths: manual, auto: [] });
+  else rmSync(fileOf(id));
+}
+
 // Primeira edição de arquivo livre o reserva; devolve bloqueio ou aviso.
 function reserve(id, target, locks) {
   const path = normalize(target);
@@ -182,9 +213,13 @@ function reserve(id, target, locks) {
         `Siga outra etapa do seu pedido ou: ${CLI} note ${owner.id} "<pedido>"`,
     };
   const own = locks.find((l) => l.id === id);
+  // Registra também sob reserva própria: pasta reservada não lista os arquivos editados.
+  const previous = recordOwner(path, id);
   if (own && covers(own)) return {};
-  save({ id, task: "edição", notes: [], ...own, paths: [...(own?.paths ?? []), path] });
-  if (!isDirty(target)) return {};
+  const paths = [...(own?.paths ?? []), path];
+  const auto = [...(own?.auto ?? []), path];
+  save({ id, task: "edição", notes: [], ...own, paths, auto });
+  if (previous === id || !isDirty(target)) return {};
   return { warning: `${path} já tinha alterações não commitadas antes desta reserva.` };
 }
 
@@ -202,6 +237,8 @@ function beforeTool({ session_id: id, tool_name: tool, tool_input: args }) {
 function hook(input) {
   const { hook_event_name: event, session_id: id } = input;
   if (event === "SessionEnd") return rmSync(fileOf(id), { force: true });
+  // Sem saída: com o registro ocupado, a reserva expira pelo TTL.
+  if (event === "Stop") return void withMutex(() => releaseAutomatic(id));
   if (event === "SessionStart") {
     const others = activeLocks().filter((l) => l.id !== id).map(describe);
     process.stdout.write(

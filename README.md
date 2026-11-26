@@ -24,6 +24,15 @@ e skill pessoal de mesmo nome convive com a do plugin.
   outra sessão é bloqueado), proteção do stage, do push e das mensagens de commit, sugestão de skill, checagem de qualidade
   no fim do turno e aviso de contexto grande.
 
+## Reservas entre sessões
+
+- A primeira edição cria uma reserva automática, liberada no fim do turno.
+- `claim` cria uma reserva manual, que exige `release`. Sobre um arquivo automático, torna-o manual.
+- As duas bloqueiam outras sessões.
+- Ao reservar arquivo não commitado, há aviso se o último dono for outra sessão ou desconhecido.
+- O hook `Stop` não roda se o usuário interromper a resposta. A reserva automática fica até o
+  próximo fim de turno, o fim da sessão ou 30 min sem uso de ferramenta.
+
 ## Proteções Git
 
 Valem em Bash e PowerShell.
