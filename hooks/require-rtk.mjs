@@ -1,7 +1,9 @@
 // Hook PreToolUse (Bash): nega comando de shell sem o prefixo `rtk`.
 // Regra: instrucoes/rtk.md.
 // Desligado por padrão: só age com a opção `rtk` do plugin ligada.
-if (process.env.CLAUDE_PLUGIN_OPTION_RTK !== "true") process.exit(0);
+import { rtkActive } from "./rtk-available.mjs";
+
+if (!rtkActive()) process.exit(0);
 
 const EXEMPT = /^(cd|rtk|export|set|exit|true|false|:)(\s|$)/;
 const HEREDOC = /<<-?\s*['"]?(\w+)['"]?[\s\S]*?\n\s*\1\b/g;

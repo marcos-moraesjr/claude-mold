@@ -6,7 +6,8 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-index.mjs\" regras" },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-index.mjs\" projeto" },
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/lock.mjs\" hook" }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/lock.mjs\" hook" },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/check-quality.mjs\" base" }
         ]
       }
     ],
@@ -32,9 +33,14 @@
         ]
       },
       {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-doc-staging.mjs\"" }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-doc-staging.mjs\"" },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/require-rtk.mjs\"" }
         ]
       }

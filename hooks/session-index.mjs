@@ -3,6 +3,7 @@
 // cada saída ficar abaixo do limite de contexto de um hook.
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { rtkActive, rtkEnabled } from "./rtk-available.mjs";
 
 const root = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
 const IN_PROGRESS = /^Status:\s*em andamento/im;
@@ -13,8 +14,10 @@ const instruction = (name) =>
 
 function rules() {
   const names = ["regras", "codigo", "docs", "estilo-resposta"];
-  if (process.env.CLAUDE_PLUGIN_OPTION_RTK === "true") names.push("rtk");
-  return names.map(instruction);
+  if (rtkActive()) names.push("rtk");
+  const missing = rtkEnabled() && !rtkActive();
+  const warning = "RTK ligado, mas não encontrado no PATH: comandos seguem sem prefixo. Avise o usuário.";
+  return [...names.map(instruction), missing ? warning : ""];
 }
 
 function tasksInProgress() {

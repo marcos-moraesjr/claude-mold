@@ -40,6 +40,9 @@ function readStdin() {
   });
 }
 
+// Texto colado não é o pedido: um documento citando "commit" não pede commit.
+const PASTED = /<pasted_content\b[^>]*>[\s\S]*?<\/pasted_content\b[^>]*>/g;
+
 function withoutAccents(text) {
   return text.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
@@ -59,7 +62,7 @@ function projectTriggers() {
 }
 
 const input = JSON.parse((await readStdin()) || "{}");
-const prompt = withoutAccents(String(input?.prompt ?? "").toLowerCase());
+const prompt = withoutAccents(String(input?.prompt ?? "").replace(PASTED, " ").toLowerCase());
 const matches = [...TRIGGERS, ...projectTriggers()].filter(({ pattern }) => pattern.test(prompt));
 const skills = [...new Set(matches.map(({ skill }) => skill))];
 

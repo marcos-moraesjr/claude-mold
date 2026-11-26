@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -13,12 +13,23 @@ mkdirSync(join(root, ".claude/skills"), { recursive: true });
 writeFileSync(join(root, ".claude/skills/INDEX.md"), "indice-do-projeto");
 writeFileSync(join(root, ".claude/gatilhos.json"), '{"novo-modulo":"novo modulo"}');
 
+// rtk falso no PATH: o CI não tem o RTK instalado.
+const bin = join(root, "bin");
+mkdirSync(bin);
+writeFileSync(join(bin, process.platform === "win32" ? "rtk.exe" : "rtk"), "");
+const pathName = Object.keys(process.env).find((name) => name.toUpperCase() === "PATH");
+
 function run(script, args = [], input = {}, rtk = "false") {
   const path = fileURLToPath(new URL(`../hooks/${script}`, import.meta.url));
   const result = spawnSync(process.execPath, [path, ...args], {
     encoding: "utf8",
     input: JSON.stringify(input),
-    env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_OPTION_RTK: rtk },
+    env: {
+      ...process.env,
+      [pathName]: `${bin}${delimiter}${process.env[pathName]}`,
+      CLAUDE_PROJECT_DIR: root,
+      CLAUDE_PLUGIN_OPTION_RTK: rtk,
+    },
   });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;

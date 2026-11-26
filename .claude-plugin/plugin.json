@@ -1,6 +1,6 @@
 {
   "name": "mold",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Padrão de trabalho para Claude Code: skills, hooks e instruções em pt-BR.",
   "author": { "name": "marcos-moraesjr" },
   "repository": "https://github.com/marcos-moraesjr/claude-mold",

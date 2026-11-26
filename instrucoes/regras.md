@@ -24,7 +24,8 @@ projeto; o que ele não declarar não se presume.
   Desliga só com "normal mode".
 - **Honestidade:** teste falhou, mostre a saída; passo pulado, diga. "Concluído" só
   pela skill `fechar-entrega`.
-- **Sessões paralelas:** skill `guardiao` antes de editar.
+- **Sessões paralelas:** a primeira edição reserva o arquivo; bloqueio ou fim da
+  tarefa, skill `guardiao`.
 
 ## Economia de contexto
 

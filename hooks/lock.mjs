@@ -1,5 +1,5 @@
 // Guardião de sessões paralelas: reserva de caminhos por sessão.
-// CLI: claim <sessao> "<tarefa>" <caminho...> | release <sessao> [caminho...]
+// CLI: [--root <pasta>] claim <sessao> "<tarefa>" <caminho...> | release <sessao> [caminho...]
 //      note <sessao-dona> "<pedido>" | list
 // Hook: `hook` (SessionStart, PreToolUse, SessionEnd), JSON no stdin.
 import {
@@ -11,11 +11,12 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { rtkActive } from "./rtk-available.mjs";
 
 function gitRoot() {
   try {
@@ -28,7 +29,11 @@ function gitRoot() {
   }
 }
 
-const ROOT = resolve(process.env.CLAUDE_PROJECT_DIR ?? gitRoot());
+// `--root` vem nos comandos sugeridos: o CLI não recebe CLAUDE_PROJECT_DIR.
+const ARGS = process.argv.slice(2);
+const AT = ARGS.indexOf("--root");
+const GIVEN = AT >= 0 ? ARGS.splice(AT, 2)[1] : undefined;
+const ROOT = resolve(GIVEN ?? process.env.CLAUDE_PROJECT_DIR ?? gitRoot());
 // Reservas fora do repositório: nenhum projeto precisa ignorá-las no git.
 const KEY = createHash("sha1").update(ROOT.toLowerCase()).digest("hex");
 const DIR = join(homedir(), ".claude/locks", KEY.slice(0, 12));
@@ -38,8 +43,9 @@ const MUTEX_STALE_MS = 10_000;
 const MUTEX_TRIES = 100;
 const MUTEX_WAIT_MS = 50;
 const EDIT_TOOLS = ["Edit", "Write", "NotebookEdit"];
-const PREFIX = process.env.CLAUDE_PLUGIN_OPTION_RTK === "true" ? "rtk " : "";
-const CLI = `${PREFIX}node "${fileURLToPath(import.meta.url).replaceAll("\\", "/")}"`;
+const PREFIX = rtkActive() ? "rtk " : "";
+const slashes = (path) => path.replaceAll("\\", "/");
+const CLI = `${PREFIX}node "${slashes(fileURLToPath(import.meta.url))}" --root "${slashes(ROOT)}"`;
 
 const fileOf = (id) => join(DIR, `${id.replace(/[^\w-]/g, "")}.json`);
 const save = (lock) =>
@@ -141,50 +147,71 @@ const commands = {
   },
 };
 
+function isDirty(target) {
+  try {
+    const args = ["-C", dirname(target), "status", "--porcelain", "--", basename(target)];
+    return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
+// Primeira edição de arquivo livre o reserva; devolve bloqueio ou aviso.
+function reserve(id, target, locks) {
+  const path = normalize(target);
+  // Fora do projeto (scratchpad, memória) não há disputa.
+  if (path.startsWith("..") || /^[a-z]:/.test(path)) return {};
+  const covers = (l) => l.paths.some((a) => contains(a, path));
+  const owner = locks.find((l) => l.id !== id && covers(l));
+  if (owner)
+    return {
+      blocked:
+        `Bloqueado: ${path} reservado por ${describe(owner)}. ` +
+        `Siga outra etapa do seu pedido ou: ${CLI} note ${owner.id} "<pedido>"`,
+    };
+  const own = locks.find((l) => l.id === id);
+  if (own && covers(own)) return {};
+  save({ id, task: "edição", notes: [], ...own, paths: [...(own?.paths ?? []), path] });
+  if (!isDirty(target)) return {};
+  return { warning: `${path} já tinha alterações não commitadas antes desta reserva.` };
+}
+
+// Todo uso de ferramenta renova a reserva e entrega os pedidos recebidos.
+function beforeTool({ session_id: id, tool_name: tool, tool_input: args }) {
+  const own = activeLocks().find((l) => l.id === id);
+  if (own) save({ ...own, notes: [] });
+  const context = own?.notes.length ? [`Pedidos de outras sessões: ${own.notes.join(" | ")}`] : [];
+  const target = args?.file_path ?? args?.notebook_path;
+  if (!EDIT_TOOLS.includes(tool) || !target) return { context };
+  const { blocked, warning } = reserve(id, target, activeLocks());
+  return { blocked, context: warning ? [...context, warning] : context };
+}
+
 function hook(input) {
-  const { hook_event_name: event, session_id: id, tool_name: tool } = input;
+  const { hook_event_name: event, session_id: id } = input;
   if (event === "SessionEnd") return rmSync(fileOf(id), { force: true });
-  const locks = activeLocks();
   if (event === "SessionStart") {
-    const others = locks.filter((l) => l.id !== id).map(describe);
+    const others = activeLocks().filter((l) => l.id !== id).map(describe);
     process.stdout.write(
-      `Guardião: sua sessão é ${id}. Antes de editar, skill \`guardiao\`.\n` +
+      `Guardião: sua sessão é ${id}. A primeira edição reserva o arquivo. CLI: ${CLI}\n` +
         (others.length ? `Reservado: ${others.join(" | ")}\n` : ""),
     );
     return;
   }
 
-  // Todo uso de ferramenta renova a reserva e entrega os pedidos recebidos.
-  const own = locks.find((l) => l.id === id);
-  if (own) save({ ...own, notes: [] });
-  if (own?.notes.length) {
-    process.stdout.write(
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "PreToolUse",
-          additionalContext: `Pedidos de outras sessões: ${own.notes.join(" | ")}`,
-        },
-      }),
-    );
+  // Conferir e gravar sob o mesmo mutex: duas sessões não reservam juntas.
+  const result = withMutex(() => beforeTool(input));
+  if (typeof result === "string") {
+    if (EDIT_TOOLS.includes(input.tool_name)) fail(result);
+    return;
   }
-
-  const target = input.tool_input?.file_path ?? input.tool_input?.notebook_path;
-  if (!EDIT_TOOLS.includes(tool) || !target) return;
-  const path = normalize(target);
-  // Fora do projeto (scratchpad, memória) não há disputa.
-  if (path.startsWith("..") || /^[a-z]:/.test(path)) return;
-  const covers = (l) => l.paths.some((a) => contains(a, path));
-  const owner = locks.find((l) => l.id !== id && covers(l));
-  if (owner)
-    fail(
-      `Bloqueado: ${path} reservado por ${describe(owner)}. ` +
-        `Siga outra etapa do seu pedido ou: ${CLI} note ${owner.id} "<pedido>"`,
-    );
-  if (!own || !covers(own))
-    fail(`Sem reserva: ${CLI} claim ${id} "<tarefa>" ${path}`);
+  if (result.blocked) fail(result.blocked);
+  if (result.context.length === 0) return;
+  const additionalContext = result.context.join("\n");
+  process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext } }));
 }
 
-const [command, ...args] = process.argv.slice(2);
+const [command, ...args] = ARGS;
 mkdirSync(DIR, { recursive: true });
 if (command === "hook") {
   let raw = "";
