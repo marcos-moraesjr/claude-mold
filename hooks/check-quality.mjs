@@ -10,12 +10,14 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
 const MAX_FILE_LINES = 500;
+// O padrão do Node (1 MB) derruba o git em árvore grande e reprova checagem verbosa.
+const MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
 const SOURCE_FILE = /\.(ts|tsx|js|jsx|mjs|py|go|rs|java|kt|cs|php|rb|swift)$/;
 const GENERATED_FILE = /\.gen\.|\.min\.|(^|\/)(dist|build|vendor|node_modules|locales)\//;
 const STATE_DIR = join(homedir(), ".claude/mold/base");
 
 const git = (root, ...args) =>
-  execFileSync("git", ["-C", root, ...args], { encoding: "utf8", input: "", stdio: ["pipe", "pipe", "ignore"] });
+  execFileSync("git", ["-C", root, ...args], { encoding: "utf8", maxBuffer: MAX_OUTPUT_BYTES, input: "", stdio: ["pipe", "pipe", "ignore"] });
 const countLines = (text) => text.split("\n").length;
 
 // Repositório atual; fora de um, os repositórios filhos diretos.
@@ -121,7 +123,7 @@ function declaredCheck(root) {
 // Linhas "AVISO:" de uma checagem aprovada aparecem ao usuário sem bloquear.
 function runDeclared(root, command) {
   try {
-    const passed = execSync(command, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    const passed = execSync(command, { cwd: root, encoding: "utf8", maxBuffer: MAX_OUTPUT_BYTES, stdio: ["ignore", "pipe", "pipe"] });
     return { problems: [], warnings: passed.split("\n").filter((line) => line.startsWith("AVISO:")) };
   } catch (error) {
     const output = `${error.stdout ?? ""}${error.stderr ?? ""}`.trim();
@@ -162,10 +164,17 @@ function check({ session_id: session, stop_hook_active: repeated }, folder) {
   report(results.flatMap((result) => result.problems), warnings, repeated);
 }
 
+function main(input, folder) {
+  if (process.argv[2] !== "base") return check(input, folder);
+  if (input.session_id) recordBases(input.session_id, folder);
+}
+
 let raw = "";
 for await (const chunk of process.stdin) raw += chunk;
-const input = JSON.parse(raw || "{}");
-const folder = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
-if (process.argv[2] === "base") {
-  if (input.session_id) recordBases(input.session_id, folder);
-} else check(input, folder);
+// Falha do próprio portão não bloqueia, mas precisa chegar ao usuário.
+try {
+  main(JSON.parse(raw || "{}"), process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+} catch (error) {
+  const reason = String(error.message).slice(0, 500);
+  process.stdout.write(JSON.stringify({ systemMessage: `Portão de qualidade não rodou: ${reason}` }));
+}

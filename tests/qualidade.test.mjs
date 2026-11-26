@@ -1,14 +1,15 @@
 // Portão de qualidade: base da sessão, commits intermediários e segunda parada.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const script = fileURLToPath(new URL("../hooks/check-quality.mjs", import.meta.url));
-const home = mkdtempSync(join(tmpdir(), "mold-q-"));
+// Nome longo: o git devolve o toplevel assim, e a declaração é comparada com ele.
+const home = realpathSync.native(mkdtempSync(join(tmpdir(), "mold-q-")));
 after(() => rmSync(home, { recursive: true, force: true }));
 
 function run(cwd, input, args = []) {
@@ -77,6 +78,35 @@ test("segunda parada avisa sem bloquear", () => {
   const output = run(repo, { session_id: "s5", stop_hook_active: true });
   assert.equal(output.decision, undefined);
   assert.match(output.systemMessage, /a\.py: 601 linhas/);
+});
+
+function declare(cwd, command) {
+  mkdirSync(join(home, ".claude"), { recursive: true });
+  writeFileSync(join(home, ".claude/qualidade.json"), JSON.stringify({ [cwd]: command }));
+}
+
+test("checagem aprovada com saída acima de 1 MB não reprova", () => {
+  const repo = repository("saida-grande");
+  write(repo, "a.py", 10);
+  declare(repo, `node -e "console.log('AVISO: rodou'); process.stdout.write('x'.repeat(3e6))"`);
+  const output = run(repo, { session_id: "s7" });
+  assert.equal(output.decision, undefined);
+  assert.match(output.systemMessage, /AVISO: rodou/);
+});
+
+test("lista de alterados acima de 1 MB ainda é conferida", () => {
+  const repo = repository("muitos");
+  const folder = "p".repeat(100);
+  mkdirSync(join(repo, folder));
+  for (let index = 0; index < 6000; index++) write(repo, `${folder}/${"n".repeat(80)}${index}.txt`, 0);
+  write(repo, "z.py", 600);
+  assert.match(run(repo, { session_id: "s8" }).reason, /z\.py: 601 linhas/);
+});
+
+test("erro do git aparece em systemMessage", () => {
+  const repo = repository("corrompido");
+  writeFileSync(join(repo, ".git/index"), "lixo");
+  assert.match(run(repo, { session_id: "s9" }).systemMessage, /Portão de qualidade não rodou/);
 });
 
 test("projeto sem checagem declarada avisa uma vez por sessão", () => {

@@ -68,7 +68,20 @@ test("sessão em subpasta: o comando sugerido pelo hook usa a mesma raiz", () =>
   assert.ok(start.stdout.includes(`--root "${sub.replaceAll("\\", "/")}"`), start.stdout);
   const cli = (...args) => spawnSync(process.execPath, [script, ...args], { cwd: sub, env, encoding: "utf8" });
   assert.equal(cli("--root", sub, "claim", "s", "t", "a").status, 0);
-  assert.match(cli("--root", sub, "list").stdout, /s "t": a/);
+  assert.match(cli("--root", sub, "list").stdout, /s "t": src\/a/);
+});
+
+test("sessões na raiz e na subpasta disputam o mesmo registro", () => {
+  const repo = join(root, "mono");
+  const sub = join(repo, "src");
+  mkdirSync(sub, { recursive: true });
+  spawnSync("git", ["init", "-q"], { cwd: repo });
+  assert.equal(run(["--root", sub, "claim", "g", "sub", "a.ts"]).status, 0);
+  assert.equal(run(["--root", repo, "claim", "h", "raiz", "src/a.ts"]).status, 2);
+  assert.equal(run(["--root", repo, "claim", "h", "raiz", "doc.md"]).status, 0);
+  assert.equal(run(["--root", sub, "claim", "g", "sub", "../doc.md"]).status, 2);
+  assert.equal(run(["--root", sub, "release", "g", "a.ts"]).status, 0);
+  assert.equal(run(["--root", repo, "claim", "h", "raiz", "src/a.ts"]).status, 0);
 });
 
 test("primeira edição reserva; arquivo sujo gera aviso", () => {

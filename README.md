@@ -31,7 +31,7 @@ Valem em Bash e PowerShell.
 | Operação | Decisão |
 | --- | --- |
 | `add` em massa (`-A`, `-u`, `.`, glob, diretório) | nega |
-| `commit --no-verify`, atribuição de IA | nega |
+| `commit --no-verify`, `-c core.hooksPath`, atribuição de IA | nega |
 | `.env*` (exceto `.env.example`), chave privada | nega |
 | Push forçado em `main`, `master`, `develop` | nega |
 | Demais `push`, `commit -a`, documentação no stage | pergunta |
@@ -39,7 +39,8 @@ Valem em Bash e PowerShell.
 Documentação: `.md`, `.mdx`, `.rst` ou qualquer arquivo em `docs/`.
 
 Os hooks não são barreira de segurança: só reconhecem formas comuns de comando
-(alias, script e variável escapam). Proteja as branches no servidor Git.
+(alias, script, variável, `sudo`, `env` e caminho completo do git escapam). Proteja as
+branches no servidor Git.
 Segredos: só `.env` e chave privada; tokens de API passam. Use um scanner no CI.
 
 ## Opção RTK (desligada por padrão)

@@ -57,6 +57,41 @@ test("chave privada é negada, com o arquivo e sem o valor", () => {
   assert.doesNotMatch(output, new RegExp(`${SECRET}|ok\\.ts`));
 });
 
+const commitAll = (cwd) => {
+  execFileSync("git", ["add", "-A"], { cwd });
+  execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"], { cwd });
+};
+
+// Arquivo já rastreado que ganha uma chave sem passar pelo stage.
+function leaked(name) {
+  const repo = repository(name, { "app.ts": "a\n", "ok.ts": "a\n" });
+  commitAll(repo);
+  writeFileSync(join(repo, "app.ts"), `${KEY}\n`);
+  return repo;
+}
+
+test("cd antes do commit confere o repositório de destino", () => {
+  const repo = repository("destino", { ".env": SECRET });
+  stage(repo, ".env");
+  for (const command of ["cd destino && git commit -m x", "Set-Location -Path destino; git commit -m x"])
+    assert.match(run("guard-doc-staging.mjs", { cwd: root, tool_input: { command } }), /"deny".*\.env/);
+});
+
+test("commit <arquivo> e commit -a conferem o que está fora do stage", () => {
+  const repo = leaked("fora-do-stage");
+  for (const command of ["git commit app.ts -m x", "git commit -m x -- app.ts", "git commit -am x", "git commit --all -m x"])
+    assert.match(guard(repo, command), /"deny".*app\.ts/, command);
+  assert.doesNotMatch(guard(repo, "git commit ok.ts -m x"), /"deny"/);
+});
+
+test("valor de opção longa não vira arquivo do commit", () => {
+  const repo = leaked("opcao-longa");
+  writeFileSync(join(repo, "ok.ts"), `${KEY}\n`);
+  stage(repo, "ok.ts");
+  assert.match(guard(repo, "git commit --message x"), /"deny".*ok\.ts/);
+  assert.doesNotMatch(guard(repo, "git commit --message x"), /app\.ts/);
+});
+
 test("RTK ligado e ausente: avisa e não bloqueia", () => {
   const env = { CLAUDE_PLUGIN_OPTION_RTK: "true", PATH: root };
   assert.equal(run("require-rtk.mjs", { tool_input: { command: "git status" } }, { env }), "");

@@ -26,11 +26,13 @@ export function secretsInPaths(paths, repository) {
   return paths.filter((path) => isEnvFile(path) || hasKey(resolve(repository, path)));
 }
 
-// Arquivos do stage com .env ou chave privada em linha adicionada.
-export function secretsInStage(repository) {
-  const names = git(repository, "diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR").split("\0");
+// Arquivos do diff com .env ou chave privada em linha adicionada. `range` é o
+// stage (`--cached`) ou a árvore de trabalho (`HEAD`); `paths` limita o diff.
+export function secretsInDiff(repository, range, paths = []) {
+  const diff = (...args) => git(repository, "diff", range, ...args, "--", ...paths);
+  const names = diff("--name-only", "-z", "--diff-filter=ACMR").split("\0");
   const found = new Set(names.filter((name) => name && isEnvFile(name)));
-  const patch = git(repository, "diff", "--cached", "-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/");
+  const patch = diff("-U0", "--no-color", "--no-ext-diff", "--src-prefix=a/", "--dst-prefix=b/");
   let file = "";
   for (const line of patch.split("\n")) {
     if (line.startsWith("+++ b/")) file = line.slice(6).trimEnd();

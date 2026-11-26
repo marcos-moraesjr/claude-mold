@@ -4,13 +4,17 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { commandsIn, gitCall, options, valueOf } from "./git-command.mjs";
-import { secretsInPaths, secretsInStage } from "./secrets.mjs";
+import { commandsIn, directoryChange, gitCall, options, valueOf } from "./git-command.mjs";
+import { secretsInDiff, secretsInPaths } from "./secrets.mjs";
 
 // `.txt` só conta em docs/: requirements.txt e CMakeLists.txt são código.
 const DOC_PATH = /(^|[/\\])docs([/\\]|$)|\.(md|mdx|rst)$/i;
 const AI_ATTRIBUTION = /co-authored-by:|generated with \[?claude|noreply@anthropic\.com/i;
 const PROTECTED = /^(refs\/heads\/)?(main|master|develop)$/;
+const COMMIT_LONG_VALUED = [
+  "--message", "--file", "--author", "--date", "--reuse-message", "--reedit-message",
+  "--template", "--trailer", "--fixup", "--squash", "--cleanup", "--pathspec-from-file",
+];
 
 const deny = (reason) => ({ decision: "deny", reason });
 const ask = (reason) => ({ decision: "ask", reason });
@@ -26,14 +30,26 @@ function git(repository, ...args) {
 const denySecrets = (files) =>
   deny(`Segredo não entra no git (.env ou chave privada): ${files.join(", ")}. Tire do stage e use .env.example sem valores.`);
 
-// Sem conseguir ler o stage, pergunta: falha interna não libera o commit.
-function checkStagedSecrets(repository) {
+// O que o commit leva: o stage; com -a, tudo que é rastreado; com arquivos, a
+// versão deles na árvore de trabalho (mais o stage, se houver -i).
+function commitScopes(repository, flags, paths) {
+  const all = flags.includes("-a") || flags.includes("--all");
+  const included = flags.includes("-i") || flags.includes("--include");
+  // Sem commit não há HEAD para comparar: o arquivo já precisa estar no stage.
+  if (!(all || paths.length) || !git(repository, "rev-parse", "--verify", "HEAD")) return [["--cached"]];
+  if (all) return [["HEAD"]];
+  return included ? [["--cached"], ["HEAD", paths]] : [["HEAD", paths]];
+}
+
+// Sem conseguir ler o diff, pergunta: falha interna não libera o commit.
+function checkCommitSecrets(repository, flags, paths) {
   if (!git(repository, "rev-parse", "--git-dir")) return [];
   try {
-    const files = secretsInStage(repository);
+    const scopes = commitScopes(repository, flags, paths);
+    const files = [...new Set(scopes.flatMap(([range, only]) => secretsInDiff(repository, range, only)))];
     return files.length ? [denySecrets(files)] : [];
   } catch {
-    return [ask("Não foi possível conferir segredos no stage. Confira antes de prosseguir.")];
+    return [ask("Não foi possível conferir segredos no commit. Confira antes de prosseguir.")];
   }
 }
 
@@ -56,10 +72,10 @@ function checkAdd({ args, repository }) {
 }
 
 function checkCommit({ args, repository }) {
-  const { flags } = options(args, "mFCct");
+  const { flags, operands } = options(args, "mFCct", "uS", COMMIT_LONG_VALUED);
   if (flags.includes("--no-verify") || flags.includes("-n"))
     return [deny("Regra do plugin mold: commit nunca usa --no-verify (-n).")];
-  const found = checkStagedSecrets(repository);
+  const found = checkCommitSecrets(repository, flags, operands);
   if (flags.includes("-a") || flags.includes("--all"))
     found.push(ask("git commit -a coloca tudo que mudou no commit, inclusive documentação. Prefira git add com caminhos explícitos."));
   const docs = git(repository, "diff", "--cached", "--name-only", "-z").split("\0").filter((f) => DOC_PATH.test(f));
@@ -71,7 +87,14 @@ function checkCommit({ args, repository }) {
 function pushTargets(operands, repository) {
   const refs = operands.slice(1);
   if (refs.length === 0) return [git(repository, "symbolic-ref", "--short", "HEAD").trim()];
-  return refs.map((ref) => ref.replace(/^\+/, "").split(":").pop());
+  const targets = refs.map((ref) => ref.replace(/^\+/, "").split(":").pop());
+  return targets.map((target) => (target === "HEAD" ? git(repository, "symbolic-ref", "--short", "HEAD").trim() : target));
+}
+
+// Trocar a pasta de hooks equivale a `--no-verify`.
+function checkHooksPath({ sub, configs }) {
+  if (!["commit", "push"].includes(sub) || !configs.some((c) => /^core\.hookspath=/i.test(c))) return [];
+  return [deny("Regra do plugin mold: git -c core.hooksPath pula os hooks do repositório, como --no-verify.")];
 }
 
 function checkPush({ args, repository }) {
@@ -92,7 +115,7 @@ function fileText(path, repository) {
 }
 
 // Heredoc e -m aparecem na própria linha; -F e --body-file, no arquivo.
-function checkAttribution(line, command, call, cwd) {
+function checkAttribution(line, command, call, folder) {
   const isPullRequest = command.name === "gh" && command.args[0] === "pr" && ["create", "edit"].includes(command.args[1]);
   if (call?.sub !== "commit" && !isPullRequest) return [];
   const file = isPullRequest ? valueOf(command.args, "-F", "--body-file") : valueOf(call.args, "-F", "--file");
@@ -114,10 +137,15 @@ const cwd = input.cwd ?? process.cwd();
 
 const results = [];
 let commits = false;
+let folder = cwd;
 for (const command of commandsIn(line)) {
+  const target = directoryChange(command);
+  // Destino inexistente (variável, pasta ainda não criada): fica onde estava.
+  if (target && existsSync(resolve(folder, target))) folder = resolve(folder, target);
   const parsed = gitCall(command);
-  const call = parsed && { ...parsed, repository: resolve(cwd, parsed.repository) };
+  const call = parsed && { ...parsed, repository: resolve(folder, parsed.repository) };
   commits ||= call?.sub === "commit";
+  if (call) results.push(...checkHooksPath(call));
   results.push(...checkAttribution(line, command, call, cwd), ...(CHECKS[call?.sub]?.(call) ?? []));
 }
 

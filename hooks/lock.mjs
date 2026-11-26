@@ -34,8 +34,20 @@ const ARGS = process.argv.slice(2);
 const AT = ARGS.indexOf("--root");
 const GIVEN = AT >= 0 ? ARGS.splice(AT, 2)[1] : undefined;
 const ROOT = resolve(GIVEN ?? process.env.CLAUDE_PROJECT_DIR ?? gitRoot());
+// Raiz do repositório: sessões abertas em subpastas disputam o mesmo registro.
+// `--show-cdup` é relativo e mantém a grafia de ROOT (nome curto do Windows).
+function repositoryTop(folder) {
+  try {
+    const args = ["-C", folder, "rev-parse", "--show-cdup"];
+    const up = execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return resolve(folder, up.trim());
+  } catch {
+    return folder;
+  }
+}
+const TOP = repositoryTop(ROOT);
 // Reservas fora do repositório: nenhum projeto precisa ignorá-las no git.
-const KEY = createHash("sha1").update(ROOT.toLowerCase()).digest("hex");
+const KEY = createHash("sha1").update(TOP.toLowerCase()).digest("hex");
 const DIR = join(homedir(), ".claude/locks", KEY.slice(0, 12));
 const MUTEX = join(DIR, ".mutex");
 const TTL_MS = 30 * 60 * 1000;
@@ -54,7 +66,7 @@ const describe = (l) => `${l.id} "${l.task}": ${l.paths.join(", ")}`;
 
 // Minúsculas porque o sistema de arquivos do Windows ignora caixa.
 const normalize = (path) =>
-  relative(ROOT, resolve(ROOT, path.replace(/\/\*\*$/, "")))
+  relative(TOP, resolve(ROOT, path.replace(/\/\*\*$/, "")))
     .replaceAll("\\", "/")
     .toLowerCase();
 const contains = (area, path) =>
