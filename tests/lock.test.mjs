@@ -168,3 +168,45 @@ test("registro de donos não aparece no list nem quebra o hook", () => {
   assert.equal(again.status, 0, again.stderr);
   assert.match(again.stdout, /não commitadas/, "registro ilegível: dono desconhecido");
 });
+
+const subfolderCli = (name) => {
+  const repo = join(root, name);
+  const sub = join(repo, "src");
+  mkdirSync(sub, { recursive: true });
+  spawnSync("git", ["init", "-q"], { cwd: repo });
+  return (...args) => run(["--root", sub, ...args]);
+};
+
+test("release em subpasta aceita o caminho do list e o relativo a --root", () => {
+  const cli = subfolderCli("solta");
+  assert.equal(cli("claim", "r", "t", "a.ts", "b.ts", "c.ts").status, 0);
+  assert.equal(cli("release", "r", "src/A.ts").status, 0);
+  assert.equal(cli("release", "r", "b.ts").status, 0);
+  assert.match(cli("list").stdout, /r "t": src\/c\.ts\n/);
+  assert.equal(cli("release", "r").status, 0, "sem caminhos libera tudo");
+  assert.match(cli("list").stdout, /livre/);
+  const none = cli("release", "r", "c.ts");
+  assert.deepEqual([none.status, none.stdout, none.stderr], [0, "", ""], "sessão sem reserva");
+});
+
+test("release ambíguo: vale o caminho exibido pelo list", () => {
+  const cli = subfolderCli("ambigua");
+  assert.equal(cli("claim", "s1", "t", "a.ts", "src/a.ts").status, 0);
+  assert.equal(cli("release", "s1", "src/a.ts").status, 0);
+  assert.match(cli("list").stdout, /s1 "t": src\/src\/a\.ts\n/);
+  assert.equal(cli("release", "s1").status, 0);
+});
+
+test("release de caminho não reservado sai com erro e libera os que correspondem", () => {
+  const cli = subfolderCli("parcial");
+  assert.equal(cli("claim", "u", "t", "a.ts", "b.ts").status, 0);
+  const none = cli("release", "u", "x.ts");
+  assert.equal(none.status, 2);
+  assert.match(none.stderr, /x\.ts.*src\/a\.ts, src\/b\.ts/);
+  const part = cli("release", "u", "a.ts", "y.ts");
+  assert.equal(part.status, 2);
+  assert.match(part.stderr, /y\.ts.*src\/b\.ts/);
+  assert.doesNotMatch(part.stderr, /a\.ts/);
+  assert.match(cli("list").stdout, /u "t": src\/b\.ts\n/);
+  assert.equal(cli("release", "u").status, 0);
+});

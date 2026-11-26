@@ -67,10 +67,11 @@ const save = (lock) =>
 const describe = (l) => `${l.id} "${l.task}": ${l.paths.join(", ")}`;
 
 // Minúsculas porque o sistema de arquivos do Windows ignora caixa.
-const normalize = (path) =>
-  relative(TOP, resolve(ROOT, path.replace(/\/\*\*$/, "")))
+const within = (base, path) =>
+  relative(TOP, resolve(base, path.replace(/\/\*\*$/, "")))
     .replaceAll("\\", "/")
     .toLowerCase();
+const normalize = (path) => within(ROOT, path);
 const contains = (area, path) =>
   area === "" || area === path || path.startsWith(`${area}/`);
 const overlaps = (a, b) => contains(a, b) || contains(b, a);
@@ -138,6 +139,19 @@ function fail(message) {
   process.exit(2);
 }
 
+// O argumento vale como o `list` o exibe (a partir de TOP) ou relativo a --root;
+// se casar das duas formas, vence o exibido.
+function matchReserved(reserved, paths) {
+  const gone = [];
+  const unknown = [];
+  for (const path of paths) {
+    const found = [within(TOP, path), normalize(path)].find((p) => reserved.includes(p));
+    if (found === undefined) unknown.push(path);
+    else gone.push(found);
+  }
+  return { gone, unknown };
+}
+
 // Cada comando devolve a mensagem de erro, ou nada em caso de sucesso.
 const commands = {
   claim(id, task, ...paths) {
@@ -163,10 +177,12 @@ const commands = {
     if (!own) return;
     if (own.notes.length)
       process.stdout.write(`Pedidos pendentes: ${own.notes.join(" | ")}\n`);
-    const gone = paths.map(normalize);
+    const { gone, unknown } = matchReserved(own.paths, paths);
     const left = own.paths.filter((p) => !gone.includes(p));
     if (paths.length && left.length) save({ ...own, paths: left });
     else rmSync(fileOf(id));
+    if (unknown.length)
+      return `sem reserva para: ${unknown.join(", ")}. Reservados: ${left.join(", ") || "nenhum"}`;
   },
   note(id, message) {
     const owner = activeLocks().find((l) => l.id === id);
