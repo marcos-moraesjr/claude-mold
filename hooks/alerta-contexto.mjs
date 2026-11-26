@@ -1,10 +1,10 @@
-// Hook Stop: avisa quando o contexto da sessão passa de 150k tokens e, depois,
-// a cada marca de 50k (200k, 250k...). Cada marca avisa uma vez por sessão.
+// Hook Stop: avisa quando o contexto da sessão passa de 100k tokens e, depois,
+// a cada marca de 50k (150k, 200k...). Cada marca avisa uma vez por sessão.
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const FIRST_MARK = 150_000;
+const FIRST_MARK = 100_000;
 const STEP = 50_000;
 
 function contextTokens(transcriptPath) {
@@ -48,7 +48,7 @@ try {
   // Grava também quando a marca cai (compactação), para voltar a avisar.
   if (mark !== previous) writeFileSync(stateFile, String(mark));
   if (mark > previous) {
-    const message = `Contexto da sessão passou de ${mark / 1000}k tokens (atual: ${Math.round(tokens / 1000)}k). Considere /clear ou /compact.`;
+    const message = `Contexto da sessão passou de ${mark / 1000}k tokens (atual: ${Math.round(tokens / 1000)}k). Grave o estado em docs/em-andamento e dê /clear.`;
     process.stdout.write(JSON.stringify({ systemMessage: message }));
   }
 } catch {
